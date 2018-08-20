@@ -13,7 +13,7 @@ defmodule Hammer.Mixfile do
       ],
       source_url: "https://github.com/ExHammer/hammer",
       homepage_url: "https://github.com/ExHammer/hammer",
-      version: "3.0.0",
+      version: "5.0.0",
       elixir: "~> 1.6",
       build_embedded: Mix.env() == :prod,
       start_permanent: Mix.env() == :prod,
@@ -51,8 +51,9 @@ defmodule Hammer.Mixfile do
   # Type "mix help deps" for more examples and options
   defp deps do
     [
+      {:poolboy, "~> 1.5"},
       {:ex_doc, "~> 0.16", only: :dev},
-      {:dialyxir, "~> 0.5", only: [:dev], runtime: false},
+      {:dialyxir, "~> 0.5", only: [:dev, :test], runtime: false},
       {:excoveralls, "~> 0.5", only: :test}
     ]
   end

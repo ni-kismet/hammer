@@ -7,7 +7,7 @@ Add Hammer as a dependency in `mix.exs`:
 
 ```elixir
 def deps do
-  [{:hammer, "~> 2.1.0"}]
+  [{:hammer, "~> 5.0"}]
 end
 ```
 
@@ -71,6 +71,12 @@ The `:expiry_ms` value should be configured to be longer than the life of the
 longest bucket you will be using, as otherwise the bucket could be deleted while
 it is still counting up hits for its time period.
 
+The size of the backend worker pool can be tweaked with the `:pool_size` and
+`:pool_max_overflow` options, (which are then supplied to `poolboy`). `:pool_size`
+determines the size of the pool, and `:pool_max_overflow` determines how many extra
+workers can be spawned when the system is under pressure. The default for both is `4`,
+which will be fine for most systems.
+
 Luckily, even if you don't configure `:hammer` at all, the application will
 default to the ETS backend anyway, with some sensible defaults.
 
@@ -82,6 +88,7 @@ when your system starts), All you need to do is use the various functions in the
 `Hammer` module:
 
 - `check_rate(id::string, scale_ms::integer, limit::integer)`
+- `check_rate_inc(id::string, scale_ms::integer, limit::integer, increment::integer)`
 - `inspect_bucket(id::string, scale_ms::integer, limit::integer)`
 - `delete_buckets(id::string)`
 - `make_rate_checker(id_prefix, scale_ms, limit)`
@@ -106,6 +113,29 @@ case Hammer.check_rate("upload_file:#{user_id}", 60_000, 10) do
 end
 ```
 
+
+## Custom increments
+
+The `Hammer` module also includes  a `check_rate_inc` function, which allows you
+to specify the number by which to increment the current bucket. This is useful
+for rate-limiting APIs which have some idea of "cost", where the cost of a given
+operation can be determined and expressed as an integer.
+
+Example:
+
+```elixir
+# Bulk file upload
+user_id = get_user_id_somehow()
+n = get_number_of_files()
+case Hammer.check_rate_inc("upload_file_bulk:#{user_id}", 60_000, 10, n) do
+  {:allow, _count} ->
+    # upload all of the files
+  {:deny, _limit} ->
+    # deny the request
+end
+```
+
+
 ## Switching to Redis
 
 There may come a time when ETS just doesn't cut it, for example if we end up
@@ -125,7 +155,9 @@ the `:hammer` application:
 config :hammer,
   backend: {Hammer.Backend.Redis, [expiry_ms: 60_000 * 60 * 2,
                                    redix_config: [host: "localhost",
-                                                  port: 6379]]}
+                                                  port: 6379],
+                                   pool_size: 4,
+                                   pool_max_overflow: 2]}
 ```
 
 Then it should all Just Work™.
@@ -160,15 +192,32 @@ Hammer.check_rate(:redis,     "upload:#{user_id}", 60_000, 5)
 When using multiple backends the backend specifier key is mandatory, there is no
 notion of a default backend.
 
-Note: It's currently not possible to use multiple instances of the same backend
-module, so it's not possible to have two separate Redis backends for example.
-We'll probably remove this restriction at some point in the future.
+In version 4.0 and up, it is even possible to have multiple instances of the same
+backend type, like so:
+
+```elixir
+config :hammer,
+  backend: [
+    redis_one: {Hammer.Backend.Redis, [expiry_ms: 60_000 * 60 * 2,
+                                       redix_config: [host: "localhost",
+                                                      port: 6666]]}
+    redis_two: {Hammer.Backend.Redis, [expiry_ms: 60_000 * 60 * 5,
+                                       redix_config: [host: "localhost",
+                                                      port: 7777]]}
+  ]
+```
 
 
 ## Further Reading
 
 See the docs for the [Hammer](/hammer/Hammer.html) module for full documentation
 on all the functions created by `use Hammer`.
+
+See the [Hammer.Application](/hammer/Hammer.Application.html) for all
+configuration options.
+
+Also, consult the documentation for the backend you are using, for any extra
+configuration options that may be relevant.
 
 See the [Creating Backends](/hammer/creatingbackends.html) for information on
 creating new backends for Hammer.

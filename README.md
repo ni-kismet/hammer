@@ -1,3 +1,5 @@
+<p align="center"><img src="logo/horizontal.png" alt="hammer" height="150px"></p>
+
 # Hammer
 
 A rate-limiter for Elixir, with pluggable storage backends.
@@ -6,7 +8,12 @@ A rate-limiter for Elixir, with pluggable storage backends.
 
 [![Coverage Status](https://coveralls.io/repos/github/ExHammer/hammer/badge.svg?branch=master)](https://coveralls.io/github/ExHammer/hammer?branch=master)
 
-(Note: Hammer API has changed in v2.0.0, see documentation)
+
+## New! Hammer-Plug
+
+We've just released a new helper-library to make adding rate-limiting to your Phoenix
+(or other plug-based) application even easier: [Hammer.Plug](https://github.com/ExHammer/hammer-plug).
+
 
 
 ## Installation
@@ -16,7 +23,7 @@ by adding `hammer` to your list of dependencies in `mix.exs`:
 
 ```elixir
 def deps do
-  [{:hammer, "~> 3.0"}]
+  [{:hammer, "~> 5.0"}]
 end
 ```
 
@@ -50,6 +57,7 @@ end
 The `Hammer` module provides the following functions:
 
 - `check_rate(id, scale_ms, limit)`
+- `check_rate_inc(id, scale_ms, limit, increment)`
 - `inspect_bucket(id, scale_ms, limit)`
 - `delete_buckets(id)`
 
@@ -58,7 +66,9 @@ Backends are configured via `Mix.Config`:
 ```elixir
 config :hammer,
   backend: {Hammer.Backend.ETS, [expiry_ms: 60_000 * 60 * 4,
-                                 cleanup_interval_ms: 60_000 * 10]}
+                                 cleanup_interval_ms: 60_000 * 10,
+                                 pool_size: 2,
+                                 pool_max_overflow: 4]}
 ```
 
 
@@ -72,6 +82,10 @@ using Hammer in a Phoenix application.
 
 - Hammer.Backend.ETS (provided with Hammer)
 - [Hammer.Backend.Redis](https://github.com/ExHammer/hammer-backend-redis)
+
+## Getting Help
+
+If you're having trouble, either open an issue on this repo, or reach out to the maintainers ([@shanekilkelly](https://twitter.com/shanekilkelly)) on Twitter.
 
 
 ## Acknowledgements

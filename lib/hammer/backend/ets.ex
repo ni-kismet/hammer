@@ -2,10 +2,11 @@ defmodule Hammer.Backend.ETS do
   @moduledoc """
   An ETS backend for Hammer
 
-  The public API of this module is used by Hammer to store information about rate-limit 'buckets'.
-  A bucket is identified by a `key`, which is a tuple `{bucket_number, id}`.
-  The essential schema of a bucket is: `{key, count, created_at, updated_at}`, although backends
-  are free to store and retrieve this data in whichever way they wish.
+  The public API of this module is used by Hammer to store information about
+  rate-limit 'buckets'. A bucket is identified by a `key`, which is a tuple
+  `{bucket_number, id}`. The essential schema of a bucket is:
+  `{key, count, created_at, updated_at}`, although backends are free to
+  store and retrieve this data in whichever way they wish.
 
   Use `start` or `start_link` to start the server:
 
@@ -27,6 +28,10 @@ defmodule Hammer.Backend.ETS do
 
   @behaviour Hammer.Backend
 
+  @type bucket_key :: {bucket :: integer, id :: String.t()}
+  @type bucket_info ::
+          {key :: bucket_key, count :: integer, created :: integer, updated :: integer}
+
   use GenServer
   alias Hammer.Utils
   require Logger
@@ -38,7 +43,7 @@ defmodule Hammer.Backend.ETS do
   end
 
   def start(args) do
-    GenServer.start(__MODULE__, args, name: __MODULE__)
+    GenServer.start(__MODULE__, args)
   end
 
   def start_link do
@@ -48,7 +53,7 @@ defmodule Hammer.Backend.ETS do
   @doc """
   """
   def start_link(args) do
-    GenServer.start_link(__MODULE__, args, name: __MODULE__)
+    GenServer.start_link(__MODULE__, args)
   end
 
   def stop do
@@ -58,44 +63,74 @@ defmodule Hammer.Backend.ETS do
   @doc """
   Record a hit in the bucket identified by `key`
   """
-  @spec count_hit(key :: {bucket :: integer, id :: String.t()}, now :: integer) ::
+  @spec count_hit(
+          pid :: pid(),
+          key :: bucket_key,
+          now :: integer
+        ) ::
           {:ok, count :: integer}
           | {:error, reason :: any}
-  def count_hit(key, now) do
-    GenServer.call(__MODULE__, {:count_hit, key, now})
+  def count_hit(pid, key, now) do
+    GenServer.call(pid, {:count_hit, key, now, 1})
+  end
+
+  @doc """
+  Record a hit in the bucket identified by `key`, with a custom increment
+  """
+  @spec count_hit(
+          pid :: pid(),
+          key :: bucket_key,
+          now :: integer,
+          increment :: integer
+        ) ::
+          {:ok, count :: integer}
+          | {:error, reason :: any}
+  def count_hit(pid, key, now, increment) do
+    GenServer.call(pid, {:count_hit, key, now, increment})
   end
 
   @doc """
   Retrieve information about the bucket identified by `key`
   """
-  @spec get_bucket(key :: {bucket :: integer, id :: String.t()}) ::
-          {:ok,
-           {key :: {bucket :: integer, id :: String.t()}, count :: integer, created :: integer,
-            updated :: integer}}
+  @spec get_bucket(
+          pid :: pid(),
+          key :: bucket_key
+        ) ::
+          {:ok, info :: bucket_info}
           | {:ok, nil}
           | {:error, reason :: any}
-  def get_bucket(key) do
-    GenServer.call(__MODULE__, {:get_bucket, key})
+  def get_bucket(pid, key) do
+    GenServer.call(pid, {:get_bucket, key})
   end
 
   @doc """
   Delete all buckets associated with `id`.
   """
-  @spec delete_buckets(id :: String.t()) ::
+  @spec delete_buckets(
+          pid :: pid(),
+          id :: String.t()
+        ) ::
           {:ok, count_deleted :: integer}
           | {:error, reason :: any}
-  def delete_buckets(id) do
-    GenServer.call(__MODULE__, {:delete_buckets, id})
+  def delete_buckets(pid, id) do
+    GenServer.call(pid, {:delete_buckets, id})
   end
 
   ## GenServer Callbacks
 
   def init(args) do
-    [ config | _] = args
-    ets_table_name = Keyword.get(config, :ets_table_name, :hammer_ets_buckets)
-    cleanup_interval_ms = Keyword.get(config, :cleanup_interval_ms)
-    expiry_ms = Keyword.get(config, :expiry_ms)
-    :ets.new(ets_table_name, [:named_table, :ordered_set])
+    ets_table_name = Keyword.get(args, :ets_table_name, :hammer_ets_buckets)
+    cleanup_interval_ms = Keyword.get(args, :cleanup_interval_ms)
+    expiry_ms = Keyword.get(args, :expiry_ms)
+
+    case :ets.info(ets_table_name) do
+      :undefined ->
+        :ets.new(ets_table_name, [:named_table, :ordered_set, :public])
+
+      _ ->
+        nil
+    end
+
     :timer.send_interval(cleanup_interval_ms, :prune)
 
     state = %{
@@ -111,16 +146,24 @@ defmodule Hammer.Backend.ETS do
     {:stop, :normal, :ok, state}
   end
 
-  def handle_call({:count_hit, key, now}, _from, state) do
+  def handle_call({:count_hit, key, now, increment}, _from, state) do
     %{ets_table_name: tn} = state
 
     try do
       if :ets.member(tn, key) do
-        [count, _, _] = :ets.update_counter(tn, key, [{2, 1}, {3, 0}, {4, 1, 0, now}])
+        [count, _] =
+          :ets.update_counter(tn, key, [
+            # Increment count field
+            {2, increment},
+            # Set updated_at to now
+            {4, 1, 0, now}
+          ])
+
         {:reply, {:ok, count}, state}
       else
-        true = :ets.insert(tn, {key, 1, now, now})
-        {:reply, {:ok, 1}, state}
+        # Insert {key, count, created_at, updated_at}
+        true = :ets.insert(tn, {key, increment, now, now})
+        {:reply, {:ok, increment}, state}
       end
     rescue
       e ->

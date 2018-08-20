@@ -1,9 +1,18 @@
 defmodule HammerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   setup _context do
-    {:ok, _hammer_ets_pid} = Hammer.Backend.ETS.start_link()
-    {:ok, []}
+    pool = Hammer.Utils.pool_name()
+
+    opts = [
+      name: {:local, pool},
+      worker_module: Hammer.Backend.ETS,
+      size: 4,
+      max_overflow: 4
+    ]
+
+    {:ok, _pid} = :poolboy.start_link(opts, [])
+    {:ok, [pool: pool]}
   end
 
   test "make_rate_checker" do
@@ -71,80 +80,19 @@ defmodule HammerTest do
 
     assert {:ok, 0} = Hammer.delete_buckets("unknown-bucket")
   end
-end
 
-defmodule ETSTest do
-  use ExUnit.Case
-
-  setup _context do
-    {:ok, _hammer_ets_pid} = Hammer.Backend.ETS.start_link()
-    {:ok, []}
+  test "count_hit_inc" do
+    assert {:allow, 4} = Hammer.check_rate_inc("cost-bucket1", 1000, 10, 4)
+    assert {:allow, 9} = Hammer.check_rate_inc("cost-bucket1", 1000, 10, 5)
+    assert {:deny, 10} = Hammer.check_rate_inc("cost-bucket1", 1000, 10, 3)
   end
 
-  test "count_hit" do
-    {stamp, key} = Hammer.Utils.stamp_key("one", 200_000)
-    assert {:ok, 1} = Hammer.Backend.ETS.count_hit(key, stamp)
-    assert {:ok, 2} = Hammer.Backend.ETS.count_hit(key, stamp)
-    assert {:ok, 3} = Hammer.Backend.ETS.count_hit(key, stamp)
-  end
-
-  test "get_bucket" do
-    {stamp, key} = Hammer.Utils.stamp_key("two", 200_000)
-    # With no hits
-    assert {:ok, nil} = Hammer.Backend.ETS.get_bucket(key)
-    # With one hit
-    assert {:ok, 1} = Hammer.Backend.ETS.count_hit(key, stamp)
-    assert {:ok, {{_, "two"}, 1, _, _}} = Hammer.Backend.ETS.get_bucket(key)
-    # With two hits
-    assert {:ok, 2} = Hammer.Backend.ETS.count_hit(key, stamp)
-    assert {:ok, {{_, "two"}, 2, _, _}} = Hammer.Backend.ETS.get_bucket(key)
-  end
-
-  test "delete_buckets" do
-    {stamp, key} = Hammer.Utils.stamp_key("three", 200_000)
-    # With no hits
-    assert {:ok, 0} = Hammer.Backend.ETS.delete_buckets("three")
-    # With three hits in same bucket
-    assert {:ok, 1} = Hammer.Backend.ETS.count_hit(key, stamp)
-    assert {:ok, 2} = Hammer.Backend.ETS.count_hit(key, stamp)
-    assert {:ok, 3} = Hammer.Backend.ETS.count_hit(key, stamp)
-    assert {:ok, 1} = Hammer.Backend.ETS.delete_buckets("three")
-  end
-end
-
-defmodule HammerBackendETSSupervisorTest do
-  use ExUnit.Case
-
-  test "supervisor starts correctly" do
-    assert {:ok, _pid} = Hammer.Backend.ETS.Supervisor.start_link()
-  end
-end
-
-defmodule UtilsTest do
-  use ExUnit.Case
-
-  test "timestamp" do
-    assert is_integer(Hammer.Utils.timestamp())
-  end
-
-  test "stamp_key" do
-    id = "test_one_two"
-    {stamp, key} = Hammer.Utils.stamp_key(id, 60_000)
-    assert is_integer(stamp)
-    assert is_tuple(key)
-    {bucket_number, b_id} = key
-    assert is_integer(bucket_number)
-    assert b_id == id
-  end
-
-  test "get_backend_module" do
-    # With :single and default backend config
-    assert Hammer.Utils.get_backend_module(:single) == Hammer.Backend.ETS
-    # With :single and configured backend config
-    Application.put_env(:hammer, :backend, {Hammer.Backend.SomeBackend, []})
-    assert Hammer.Utils.get_backend_module(:single) == Hammer.Backend.SomeBackend
-    # with a specific backend config
-    Application.put_env(:hammer, :backend, one: {Hammer.Backend.SomeBackend, []})
-    assert Hammer.Utils.get_backend_module(:one) == Hammer.Backend.SomeBackend
+  test "mixing count_hit with count_hit_inc" do
+    assert {:allow, 3} = Hammer.check_rate_inc("cost-bucket2", 1000, 10, 3)
+    assert {:allow, 4} = Hammer.check_rate("cost-bucket2", 1000, 10)
+    assert {:allow, 5} = Hammer.check_rate("cost-bucket2", 1000, 10)
+    assert {:allow, 9} = Hammer.check_rate_inc("cost-bucket2", 1000, 10, 4)
+    assert {:allow, 10} = Hammer.check_rate("cost-bucket2", 1000, 10)
+    assert {:deny, 10} = Hammer.check_rate_inc("cost-bucket2", 1000, 10, 2)
   end
 end

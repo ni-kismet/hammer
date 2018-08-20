@@ -1,5 +1,33 @@
 # Changelog
 
+
+## 5.0.0
+
+### Added
+
+- A new `check_rate_inc` function, which allows the caller to specify the
+  integer with which to increment the bucket by. This is useful for limiting
+  APIs which have some notion of "cost" per call.
+
+
+## 4.0.0
+
+## Changed
+
+- Use a worker-pool for the backend (via poolboy),
+  this avoids bottle-necking all traffic through a single hammer
+  process, thus improving throughput for the system overall
+
+## Added
+
+- New configuration options for backends:
+  - `:pool_size`, determines the number of workers in the pool (default 4)
+  - `:pool_max_overflow`, maximum extra workers to be spawned when the
+    system is under pressure (default 4)
+- Multiple instances of the same backend! You can now have two ETS backends,
+  fifteen Redis's, whatever you want
+
+
 ## 3.0.0
 
 ### Changed

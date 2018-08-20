@@ -1,6 +1,14 @@
 defmodule Hammer.Utils do
   @moduledoc false
 
+  def pool_name do
+    pool_name(:single)
+  end
+
+  def pool_name(name) do
+    :"hammer_backend_#{name}_pool"
+  end
+
   # Returns Erlang Time as milliseconds since 00:00 GMT, January 1, 1970
   def timestamp do
     DateTime.utc_now() |> DateTime.to_unix(:millisecond)
@@ -31,7 +39,7 @@ defmodule Hammer.Utils do
         backend_module
 
       _ ->
-        raise KeyError, "backend #{which} is not configured"
+        raise RuntimeError, "backend #{which} is not configured"
     end
   end
 end
